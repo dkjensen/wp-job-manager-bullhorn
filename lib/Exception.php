@@ -34,8 +34,6 @@ class Exception extends \Exception {
             $this->details = json_encode( (array) $details );
         }
 
-        WP_Job_Manager_Bullhorn()->log->error( $message, $this->getDetails() );
-
         parent::__construct( __( 'Bullhorn Message: ', 'wp-job-manager-bullhorn' ) . $message, intval( $code ), null );
     }
 

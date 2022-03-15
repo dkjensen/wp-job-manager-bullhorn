@@ -80,17 +80,18 @@ function apply( $application_id, $job_id ) {
         }
 
         if ( ! empty( $fields ) ) {
-            /**
-             * @var array   $fields
-             */
-            $posted = WP_Job_Manager_Bullhorn()->clients[ $client ]->post_job_application( $job_id, $fields, $application_id );
+            WP_Job_Manager_Bullhorn()->clients[ $client ]->post_job_application( $job_id, $fields, $application_id );
         }
     }
 }
-add_action( 'new_job_application', __NAMESPACE__ . '\apply', 10, 2 );
+\add_action( 'new_job_application', __NAMESPACE__ . '\apply', 15, 2 );
 
 
 function save_application_form_fields( $value, $option, $old_value ) {
+    if ( empty( WP_Job_Manager_Bullhorn()->clients ) ) {
+        return $value;
+    }
+
     foreach ( WP_Job_Manager_Bullhorn()->clients as $label => $client ) {
         if ( $option == 'job_application_form_fields' && isset( $_POST ) && isset( $_POST['field_' . $label] ) ) {
             $field_labels = ! empty( $_POST['field_label'] ) ? array_map( 'wp_kses_post', $_POST['field_label'] ) : array();

@@ -134,7 +134,7 @@ mix
  */
 mix.webpackConfig({
     stats: 'minimal',
-    devtool: process.env.NODE_ENV === 'production' ? 'none' : 'eval',
+    devtool: process.env.NODE_ENV === 'production' ? 'source-map' : 'eval',
     performance: {hints: false},
     externals: {jquery: 'jQuery'},
     plugins: []

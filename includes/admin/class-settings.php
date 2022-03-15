@@ -8,6 +8,8 @@
 
 namespace SeattleWebCo\WPJobManager\Recruiter\Bullhorn;
 
+use WP_Error;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -31,7 +33,6 @@ class Settings {
         // Authorization field callback
         add_action( 'wp_job_manager_admin_field_bullhorn_setup', array( $this, 'setup_field_callback' ), 10, 4 );
         add_action( 'wp_job_manager_admin_field_bullhorn_authorization', array( $this, 'bullhorn_authorization_field_callback' ), 10, 4 );
-        add_action( 'wp_job_manager_admin_field_bullhorn_job_boards', array( $this, 'job_boards_field_callback' ), 10, 4 );
 
         add_action( 'job_manager_bullhorn_settings', array( $this, 'bullhorn_authorization' ) );
         add_action( 'job_manager_bullhorn_settings', array( $this, 'bullhorn_deauthorization' ) );
@@ -62,14 +63,19 @@ class Settings {
                     'type'          => 'password',
                 ),
                 array(
+                    'name'          => 'bullhorn_api_username',
+                    'label'         => __( 'Bullhorn API Username', 'wp-job-manager-bullhorn' ),
+                    'type'          => 'text',
+                ),
+                array(
+                    'name'          => 'bullhorn_api_password',
+                    'label'         => __( 'Bullhorn API Password', 'wp-job-manager-bullhorn' ),
+                    'type'          => 'password',
+                ),
+                array(
                     'name'          => 'bullhorn_authorization',
                     'label'         => __( 'Bullhorn Authorization', 'wp-job-manager-bullhorn' ),
                     'type'          => 'bullhorn_authorization',
-                ),
-                array(
-                    'name'    => 'bullhorn_job_boards',
-                    'label'   => __( 'Job Boards To Sync', 'wp-job-manager-bullhorn' ),
-                    'type'    => 'bullhorn_job_boards',
                 ),
                 array(
                     'name'          => 'bullhorn_applications',
@@ -79,7 +85,7 @@ class Settings {
                 )
             ),
             array(
-                'before' => sprintf( __( '<a href="%1$s" target="_blank">Register your Bullhorn Developers application</a> using the following value as an authorized redirect URI: <code>%2$s</code>', 'wp-job-manager-bullhorn' ), 'https://developers.bullhorn.com/partners/clients/add', admin_url( 'edit.php?post_type=job_listing&page=job-manager-settings' ) ),
+                'before' => sprintf( __( 'Authorized redirect URI: <code>%1$s</code>', 'wp-job-manager-bullhorn' ), admin_url( 'edit.php?post_type=job_listing&page=job-manager-settings' ) ), 
                 'after' => sprintf( '<a href="%s">%s</a>', wp_nonce_url( admin_url( 'edit.php?post_type=job_listing&page=job-manager-settings&sync=bullhorn' ) ), __( 'Sync now', 'wp-job-manager-bullhorn' ) )
             ),
         );
@@ -113,31 +119,34 @@ class Settings {
     }
 
 
-    public function job_boards_field_callback( $option, $attributes, $value, $placeholder ) {
-        if ( ! $this->connected ) {
-            return;
-        }
-        ?>
-
-        <fieldset>
-            <legend class="screen-reader-text"><span><?php _e( 'Job Boards To Sync', 'wp-job-manager-bullhorn' ); ?></span></legend>
-
-        <?php foreach ( WP_Job_Manager_Bullhorn()->clients['bullhorn']->adapter()->get_job_boards() as $job_board ) : ?>
-            
-            <label>
-                <input name="bullhorn_job_boards[]"  type="checkbox" value="<?php print esc_attr( $job_board->boardId ); ?>" <?php checked( true, in_array( $job_board->boardId, WP_Job_Manager_Bullhorn()->clients['bullhorn']->adapter()->get_synced_job_boards() ) ); ?>>
-                <?php print esc_html_e( $job_board->name, 'wp-job-manager-bullhorn' ); ?>
-            </label><br>
-
-        <?php endforeach; ?>
-
-        </fieldset>
-
-        <?php
-    }
-
-
     public function init_settings() {
+        if ( isset( $_GET['state'] ) && $_GET['state'] == get_option( 'bullhorn_oauth_state' ) && isset( $_GET['code'] ) && current_user_can( 'manage_options' ) ) {
+            try {
+                $authorization = WP_Job_Manager_Bullhorn()->oauth->get_access_token( $_GET['code'] );
+            } catch ( \Exception $e ) {
+                $authorization = new WP_Error( 'bullhorn_rest_api_error', $e->getMessage() );
+            }
+
+            if ( ! is_wp_error( $authorization ) ) {
+                $login = WP_Job_Manager_Bullhorn()->clients['bullhorn']->login();
+
+                if ( ! is_wp_error( $login ) ) {
+                    wp_redirect( admin_url( 'edit.php?post_type=job_listing&page=job-manager-settings&connected=true#settings-bullhorn' ) );
+                    exit;
+                }
+            }
+
+            add_action( 'admin_notices', function() use ( $authorization ) {
+                ?>
+
+                <div class="notice notice-error is-dismissible">
+                    <p><?php esc_html_e( $authorization->get_error_message(), 'wp-job-manager-bullhorn' ); ?></p>
+                </div>
+
+                <?php
+            } );
+        }
+
         if ( current_user_can( 'manage_options' ) && is_admin() && ( ! defined( 'DOING_AJAX' ) || ! DOING_AJAX ) ) {
             if ( isset( $_GET['page'] ) && $_GET['page'] == 'job-manager-settings' ) {
                 $this->connected = WP_Job_Manager_Bullhorn()->clients['bullhorn']->connected();
@@ -154,26 +163,7 @@ class Settings {
 
 
     public function bullhorn_authorization() {
-        if ( isset( $_GET['state'] ) && $_GET['state'] == get_option( 'bullhorn_oauth_state' ) && isset( $_GET['code'] ) && current_user_can( 'manage_options' ) ) {
-            $authorization = WP_Job_Manager_Bullhorn()->oauth->get_access_token( $_GET['code'] );
 
-            if ( ! is_wp_error( $authorization ) ) {
-                WP_Job_Manager_Bullhorn()->cron->schedule_sync();
-
-                wp_redirect( admin_url( 'edit.php?post_type=job_listing&page=job-manager-settings&connected=true#settings-bullhorn' ) );
-                exit;
-            } else {
-                add_action( 'admin_notices', function() use ( $authorization ) {
-                    ?>
-
-                    <div class="notice notice-error is-dismissible">
-                        <p><?php esc_html_e( $authorization->get_error_message(), 'wp-job-manager-bullhorn' ); ?></p>
-                    </div>
-
-                    <?php
-                } );
-            }
-        }
     }
 
 
@@ -188,8 +178,11 @@ class Settings {
         if ( isset( $_GET['state'] ) && $_GET['state'] == 'bullhorn-deauthorization' && wp_verify_nonce( $_GET['_wpnonce'] ) && current_user_can( 'manage_options' ) ) {
             delete_option( 'bullhorn_client_id' );
             delete_option( 'bullhorn_client_secret' );
+            delete_option( 'bullhorn_api_username' );
+            delete_option( 'bullhorn_api_password' );
             delete_option( 'job_manager_bullhorn_token' );
-            delete_option( 'bullhorn_job_boards' );
+            delete_option( 'bullhorn_rest_url' );
+            delete_option( 'bullhorn_rest_token' );
 
             wp_cache_flush();
 
@@ -210,31 +203,19 @@ class Settings {
             'application_clients'                       => array_keys( WP_Job_Manager_Bullhorn()->clients ),
             'application_client_fields'                 => array(
                 'bullhorn'  => array(
+                    'name'                  => __( 'Full name', 'wp-job-manager-bullhorn' ),
                     'firstName'             => __( 'First name', 'wp-job-manager-bullhorn' ),
                     'lastName'              => __( 'Last name', 'wp-job-manager-bullhorn' ),
-                    'salutation'            => __( 'Salutation', 'wp-job-manager-bullhorn' ),
                     'email'                 => __( 'Email', 'wp-job-manager-bullhorn' ),
                     'phone'                 => __( 'Phone', 'wp-job-manager-bullhorn' ),
                     'mobile'                => __( 'Mobile', 'wp-job-manager-bullhorn' ),
-                    'address:street[]'      => __( 'Street address', 'wp-job-manager-bullhorn' ),
+                    'address:address1'      => __( 'Address 1', 'wp-job-manager-bullhorn' ),
+                    'address:address2'      => __( 'Address 2', 'wp-job-manager-bullhorn' ),
                     'address:city'          => __( 'City', 'wp-job-manager-bullhorn' ),
                     'address:state'         => __( 'State', 'wp-job-manager-bullhorn' ),
-                    'address:postalCode'    => __( 'Postal code', 'wp-job-manager-bullhorn' ),
-                    'address:countryCode'   => __( 'Country code', 'wp-job-manager-bullhorn' ),
-                    'social:facebook'       => __( 'Facebook', 'wp-job-manager-bullhorn' ),
-                    'social:twitter'        => __( 'Twitter', 'wp-job-manager-bullhorn' ),
-                    'social:linkedin'       => __( 'LinkedIn', 'wp-job-manager-bullhorn' ),
-                    'social:googleplus'     => __( 'Google Plus', 'wp-job-manager-bullhorn' ),
-                    'social:youtube'        => __( 'YouTube', 'wp-job-manager-bullhorn' ),
-                    'social:other'          => __( 'Other social', 'wp-job-manager-bullhorn' ),
-                    'availability:date'     => __( 'Availability date', 'wp-job-manager-bullhorn' ),
-                    'Resume'                => __( 'Resume', 'wp-job-manager-bullhorn' ),
-                    'CoverLetter'           => __( 'Cover letter (file)', 'wp-job-manager-bullhorn' ),
-                    'screening'             => __( 'Screening (file)', 'wp-job-manager-bullhorn' ),
-                    'check'                 => __( 'Check (file)', 'wp-job-manager-bullhorn' ),
-                    'reference'             => __( 'References (file)', 'wp-job-manager-bullhorn' ),
-                    'license'               => __( 'License (file)', 'wp-job-manager-bullhorn' ),
-                    'other'                 => __( 'Other (file)', 'wp-job-manager-bullhorn' )
+                    'address:zip'           => __( 'ZIP', 'wp-job-manager-bullhorn' ),
+                    'address:countryID'     => __( 'Country code', 'wp-job-manager-bullhorn' ),
+                    'Resume'                => __( 'Resume / CV', 'wp-job-manager-bullhorn' ),
                 )
             )
         ) );

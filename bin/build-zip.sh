@@ -13,7 +13,7 @@ echo "Installing PHP and JS dependencies..."
 npm ci
 composer install || exit "$?"
 echo "Running JS Build..."
-npm run build || exit "$?"
+npm run build:prod || exit "$?"
 echo "Generating translations..."
 npm run i18n || exit "$?"
 echo "Cleaning up PHP dependencies..."

@@ -21,6 +21,9 @@ interface Adapter {
     
     public function get_jobs();
 
+    
+    public function login();
+
 
     public function get_job( $job_id );
 

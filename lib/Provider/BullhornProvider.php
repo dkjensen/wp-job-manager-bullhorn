@@ -8,6 +8,7 @@
 
 namespace SeattleWebCo\WPJobManager\Recruiter\Bullhorn\Provider;
 
+use SeattleWebCo\WPJobManager\Recruiter\Bullhorn\Log;
 use League\OAuth2\Client\Provider\AbstractProvider;
 use Psr\Http\Message\ResponseInterface;
 use League\OAuth2\Client\Token\AccessToken;
@@ -22,6 +23,57 @@ class BullhornProvider extends AbstractProvider {
      */
     public function getBaseAuthorizationUrl() {
         return 'https://auth.bullhornstaffing.com/oauth/authorize';
+    }
+
+    /**
+     * Returns authorization parameters based on provided options.
+     *
+     * @param  array $options
+     * @return array Authorization parameters
+     */
+    protected function getAuthorizationParameters( array $options ) {
+        if (empty($options['state'])) {
+            $options['state'] = $this->getRandomState();
+        }
+
+        if (empty($options['scope'])) {
+            $options['scope'] = $this->getDefaultScopes();
+        }
+
+        $options += [
+            'response_type'   => 'code',
+            'approval_prompt' => 'auto',
+            'action'          => 'Login',
+        ];
+
+        $username = get_option( 'bullhorn_api_username' );
+        $password = get_option( 'bullhorn_api_password' );
+
+        if ( ! empty( $username ) ) {
+            $options['username'] = $username;
+        }
+
+        if ( ! empty( $password ) ) {
+            $options['password'] = $password;
+        }
+
+        if (is_array($options['scope'])) {
+            $separator = $this->getScopeSeparator();
+            $options['scope'] = implode($separator, $options['scope']);
+        }
+
+        // Store the state as it may need to be accessed later on.
+        $this->state = $options['state'];
+
+        // Business code layer might set a different redirect_uri parameter
+        // depending on the context, leave it as-is
+        if (!isset($options['redirect_uri'])) {
+            $options['redirect_uri'] = $this->redirectUri;
+        }
+
+        $options['client_id'] = $this->clientId;
+
+        return $options;
     }
 
 
@@ -39,10 +91,10 @@ class BullhornProvider extends AbstractProvider {
     /**
      * Scopes array
      *
-     * @return array
+     * @return array|null
      */
     public function getDefaultScopes() {
-        return array();
+        return null;
     }
 
 
@@ -61,20 +113,24 @@ class BullhornProvider extends AbstractProvider {
      *
      * @return string
      */
-    public function get_access_token( $code = false ) {
+    public function get_access_token( $code = false, $force = false ) {
         $tokens = get_option( 'job_manager_bullhorn_token' );
 
-        if ( $code ) {
-            $token = $this->getAccessToken( 'authorization_code', array( 'code' => $code ) );
-        } elseif ( isset( $tokens['expires'] ) && time() > $tokens['expires'] ) {
-            $token = $this->getAccessToken( 'refresh_token', array( 'refresh_token' => $tokens['refresh_token'] ) );
+        try {
+            if ( $code ) {
+                $token = $this->getAccessToken( 'authorization_code', array( 'code' => $code ) );
+            } elseif ( isset( $tokens['expires'] ) && time() > $tokens['expires'] ) {
+                $token = $this->getAccessToken( 'refresh_token', $tokens );
+            }
+
+            if ( isset( $token ) ) {
+                $this->set_access_tokens( $token );
+            }
+        } catch ( \Exception $e ) {
+           
         }
 
-        if ( isset( $token ) ) {
-            $this->set_access_tokens( $token );
-        }
-
-        return isset( $tokens['token'] ) ? $tokens['token'] : '';
+        return isset( $tokens['access_token'] ) ? $tokens['access_token'] : '';
     }
 
 
@@ -86,7 +142,7 @@ class BullhornProvider extends AbstractProvider {
      */
     protected function set_access_tokens( AccessToken $token ) {
         update_option( 'job_manager_bullhorn_token', array( 
-            'token'         => $token->getToken(),
+            'access_token'  => $token->getToken(),
             'expires'       => $token->getExpires(),
             'refresh_token' => $token->getRefreshToken()
         ) );
